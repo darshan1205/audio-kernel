@@ -808,7 +808,14 @@ int adm_programable_channel_mixer(int port_id, int copp_idx, int session_id,
 	}
 	ret = adm_populate_channel_weight(&adm_pspd_params[index],
 					ch_mixer, channel_index);
+    #ifndef VENDOR_EDIT
+    //Nan.Zhong@PSW.MM.AudioDriver.Codec, 2019/07/05, Modify for aec problem
+    /*
 	if (ret) {
+    */
+    #else /* VENDOR_EDIT */
+	if (!ret) {
+    #endif /* VENDOR_EDIT */
 		pr_err("%s: fail to get channel weight with error %d\n",
 			__func__, ret);
 		goto fail_cmd;
@@ -1762,7 +1769,8 @@ static int32_t adm_callback(struct apr_client_data *data, void *priv)
 			idx = ADM_GET_PARAMETER_LENGTH * copp_idx;
 			if ((payload[0] == 0) && (data->payload_size >
 				(4 * sizeof(*payload))) &&
-				(data->payload_size - 4 >=
+				(data->payload_size -
+				(4 * sizeof(*payload)) >=
 				payload[3]) &&
 				(ARRAY_SIZE(adm_get_parameters) >
 				idx) &&
@@ -1803,9 +1811,12 @@ static int32_t adm_callback(struct apr_client_data *data, void *priv)
 				pr_err(":err = 0x%x\n", payload[0]);
 			} else if (data->payload_size >=
 				   (2 * sizeof(uint32_t))) {
-				if (payload[1] >
+				if ((payload[1] >
 				    ((ADM_GET_TOPO_MODULE_LIST_LENGTH /
-				    sizeof(uint32_t)) - 1)) {
+				    sizeof(uint32_t)) - 1)) ||
+				((data->payload_size -
+					(2 *  sizeof(uint32_t))) <
+					(payload[1] * sizeof(uint32_t)))) {
 					pr_err("%s: ADM_CMDRSP_GET_PP_TOPO_MODULE_LIST",
 						 __func__);
 					pr_err(":size = %d\n", payload[1]);
@@ -1819,8 +1830,8 @@ static int32_t adm_callback(struct apr_client_data *data, void *priv)
 						adm_module_topo_list[idx+i] =
 							payload[1+i];
 						pr_debug("%s:payload[%d] = %x\n",
-							 __func__, (i+1),
-							 payload[1+i]);
+							__func__, (i+1),
+							payload[1+i]);
 					}
 				}
 			} else
@@ -2655,6 +2666,13 @@ int adm_arrange_mch_ep2_map(struct adm_cmd_device_open_v6 *open_v6,
  *
  * Returns 0 on success or error on failure
  */
+#ifdef VENDOR_EDIT
+/*Jianfeng.Qiu@PSW.MM.AudioDriver.Platform.1859584, 2019/02/27,
+ *Add for fix lvimfq not support sample_rate issue.
+ */
+#define VOICE_TOPOLOGY_LVIMFQ_TX_DM    0x1000BFF5
+#endif /* VENDOR_EDIT */
+
 int adm_open(int port_id, int path, int rate, int channel_mode, int topology,
 	     int perf_mode, uint16_t bit_width, int app_type, int acdb_id,
 	     int session_type)
@@ -2717,6 +2735,18 @@ int adm_open(int port_id, int path, int rate, int channel_mode, int topology,
 	    (topology == VPM_TX_DM_FLUENCE_COPP_TOPOLOGY) ||
 	    (topology == VPM_TX_DM_RFECNS_COPP_TOPOLOGY))
 		rate = 16000;
+
+	#ifdef VENDOR_EDIT
+	/*Jianfeng.Qiu@PSW.MM.AudioDriver.Platform.1859584, 2019/02/27,
+	 *Add for fix lvimfq not support sample_rate issue.
+	 */
+	if ((topology == VOICE_TOPOLOGY_LVIMFQ_TX_DM)
+		&& (rate != ADM_CMD_COPP_OPEN_SAMPLE_RATE_48K)) {
+		pr_info("%s: Change rate %d to 48K for copp 0x%x",
+			__func__, rate, topology);
+		rate = 48000;
+	}
+	#endif /* VENDOR_EDIT */
 
 	/*
 	 * Routing driver reuses the same adm for streams with the same
